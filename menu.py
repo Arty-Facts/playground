@@ -8,7 +8,6 @@ def main_menu(size=(1280, 720)):
     pygame.display.set_caption("Menu")
     screen = pygame.display.set_mode(size)
     background = pygame.image.load("assets/Background.png")
-    screen.blit(background, (0, 0))
 
 
     text = get_font(100).render("MAIN MENU", True, "#b68f40")
@@ -22,6 +21,7 @@ def main_menu(size=(1280, 720)):
                         text_input="QUIT", font=get_font(75), base_color="#d7fcd4", hovering_color="White")
     while True:
         mouse_pos = pygame.mouse.get_pos()
+        screen.blit(background, (0, 0))
         screen.blit(text, rect)
 
         for button in [play_bt, options_bt, quit_bt]:
