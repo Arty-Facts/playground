@@ -1,172 +1,34 @@
 import pygame
-from random import randint
-import numpy as np
-from numpy.linalg import norm
-import numba
+
 from lib.button import Button
 from lib.utils import get_font    
+from lib.boid import BoidSim
 
-class Boid(pygame.sprite.Sprite):
-    """
-    This code is inspired from Boids simulation - github.com/Nikorasu/PyNBoids
-    """
-    def __init__(self, id, data, drawSurf, isFish=True, cHSV=None):
-        super().__init__()
-        self.data = data
-        self.id = id
-        self.drawSurf = drawSurf
-        self.image = pygame.Surface((15, 15)).convert()
-        self.image.set_colorkey(0)
-        self.color = pygame.Color(0)  # preps color so we can use hsva
-        self.color.hsva = (randint(0,360), 90, 90) if cHSV is None else cHSV # randint(5,55) #4goldfish
-        if isFish:  # (randint(120,300) + 180) % 360  #4noblues
-            pygame.draw.polygon(self.image, self.color, ((7,0),(12,5),(3,14),(11,14),(2,5),(7,0)), width=3)
-            self.image = pygame.transform.scale(self.image, (16, 24))
-        else: 
-            pygame.draw.polygon(self.image, self.color, ((7,0), (13,14), (7,11), (1,14), (7,0)))
-        self.bSize = 22 if isFish else 17
-        self.orig_image = pygame.transform.rotate(self.image.copy(), -90)
-        maxW, maxH = self.drawSurf.get_size()
-        self.rect = self.image.get_rect(center=(randint(50, maxW - 50), randint(50, maxH - 50)))
-        self.pos = np.array((self.rect.center), dtype=np.float64)
-
-        self.data.set_pos(self.id, self.pos)  # sets up forward direction
-        self.data.set_ang(self.id, randint(0, 360))  # random start angle, & position ^
-    
-    def update(self):
-        self.image = pygame.transform.rotate(self.orig_image, -self.data.get_ang(self.id))
-        self.rect = self.image.get_rect(center=self.rect.center)  # recentering fix
-        # Actually update position of boid
-        self.rect.center = self.data.get_pos(self.id)
-
-
-@numba.jit(cache=True, nopython=True, nogil=True)
-def update_boid(array, max_radius, min_radius, avg_radius, wrap, maxW, maxH, margin, dt, speed):
-    for data in array:
-        turnDir = 0
-        turnRate = 120 * dt 
-        x, y = data[:2]
-        ang = data[2]
-        array_dists = (x - array[:,0])**2 + (y - array[:,1])**2
-        closeBoidIs = np.argsort(array_dists)[1:8]
-        neiboids = array[closeBoidIs]
-        neiboids[:,3] = np.sqrt(array_dists[closeBoidIs])
-        neiboids = neiboids[neiboids[:,3] < max_radius]
-        if neiboids.size > 1:  # if has neighborS, do math and sim rules
-            yat = np.sum(np.sin(np.deg2rad(neiboids[:,2])))
-            xat = np.sum(np.cos(np.deg2rad(neiboids[:,2])))
-            # averages the positions and angles of neighbors
-            tAvejAng = np.rad2deg(np.arctan2(yat, xat))
-            targetV = np.array((np.mean(neiboids[:,0]), np.mean(neiboids[:,1])), dtype=np.float64)
-            # if too close, move away from closest neighbor
-            if neiboids[0,3] < min_radius : 
-                targetV = neiboids[0,:2]
-            # get angle differences for steering
-            dx, dy = targetV - data[:2]
-            tAngle = np.arctan2(dy, dx)
-            tDistance = np.hypot(dx, dy)
-            # if boid is close enough to neighbors, match their average angle
-            if tDistance < avg_radius : 
-                tAngle = tAvejAng
-            # computes the difference to reach target angle, for smooth steering
-            angleDiff = (tAngle - ang) + 180
-            if abs(tAngle - ang) > 1.2: 
-                turnDir = (angleDiff / 360 - (angleDiff // 360)) * 360 - 180
-            # if boid gets too close to target, steer away
-            if tDistance < min_radius and norm(targetV - neiboids[0,0:2]) < min_radius: 
-                turnDir = -turnDir
-
-        # Avoid edges of screen by turning toward the edge normal-angle
-        if wrap and min(x, y, maxW - x, maxH - y) < margin:
-            if x < margin : 
-                tAngle = 0
-            elif x > maxW - margin : 
-                tAngle = 180
-            if y < margin : 
-                tAngle = 90
-            elif y > maxH - margin : 
-                tAngle = 270
-            angleDiff = (tAngle - ang) + 180  # if in margin, increase turnRate to ensure stays on screen
-            turnDir = (angleDiff / 360 - (angleDiff // 360)) * 360 - 180
-            edgeDist = min(x, y, maxW - x, maxH - y)
-            turnRate = turnRate + (1 - edgeDist / margin) * (20 - turnRate) #minRate+(1-dist/margin)*(maxRate-minRate)
-
-        if turnDir != 0:  # steers based on turnDir, handles left or right
-            ang += turnRate * abs(turnDir) / turnDir
-            ang %= 360  # ensures that the angle stays within 0-360
-        
-        # Adjusts angle of boid image to match heading
-        dir =  np.array((np.cos(ang * np.pi / 180.), np.sin(ang * np.pi / 180.)), dtype=np.float64)
-        # output pos to array
-        data[:2] += dir * dt * (speed + (7 - neiboids.size) * 2)  # movement speed
-
-        # Optional screen wrap
-        if not wrap:
-            if data[1] < 0 : 
-                data[1] = maxH
-            elif data[1] > maxH : 
-                data[1] = 0
-            if data[0] < 0 : 
-                data[0]= maxW
-            elif data[0] > maxW : 
-                data[0]= 0
-
-        # Finally, output ang to array
-        data[2] = ang
-
-
-class BoidArray():  # Holds array to store positions and angles
-    def __init__(self, size, bSize, wrap, maxW, maxH, margin):
-        self.array = np.zeros((size, 4), dtype=np.float64)
-        self.bSize = bSize
-        self.wrap = wrap
-        self.maxW = maxW
-        self.maxH = maxH
-        self.margin = margin
-
-    def update(self, dt, speed):
-        update_boid(self.array, self.bSize*12, self.bSize, self.bSize*6, self.wrap, self.maxW, self.maxH, self.margin, dt, speed)
-    
-    def set_pos(self, id, pos):
-        self.array[id,:2] = np.copy(pos)
-
-    def set_ang(self, id, ang):
-        self.array[id,2] = ang
-
-    def get_pos(self, id):
-        return self.array[id,:2]
-        
-    def get_ang(self, id):
-        return self.array[id,2]
-        
-BOID = Boid
-
-def game(size=(1280, 720), fullscreen=True, FPS=60, showFPS=True, speed = 150,  fish = 500):
+def game(size=(1280, 720), fullscreen=True, FPS=60, showFPS=True, speed = 150,  fish = 100):
     pygame.display.set_caption("Game")
     if fullscreen:
         screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
     else: 
         screen = pygame.display.set_mode(size, pygame.RESIZABLE)
+    screen.fill("black")
 
     size_x, size_y = pygame.display.get_window_size()
-    text = get_font(45).render("This is the PLAY screen.", True, "White")
+    text = get_font(45).render("Loading...", True, "White")
 
-    rect = text.get_rect(center=(640, 260))
+    rect = text.get_rect(center=(size_x/2, size_y/2))
     back_bt = Button(image=None, pos=(size_x-75*3, size_y-75), 
                         text_input="BACK", font=get_font(75), base_color="White", hovering_color="Green")
     
+    screen.blit(text, rect)
+    pygame.display.update()
     clock = pygame.time.Clock()
-    nBoids = pygame.sprite.Group()
-    dataArray = BoidArray(fish, 22, True,  size_x, size_y, 42)
-    for id in range(fish):
-        nBoids.add(BOID(id, dataArray, screen))  # spawns desired # of boidz
+
+    boidSim = BoidSim(fish, screen)
 
     while True:
         mouse_pos = pygame.mouse.get_pos()
 
         screen.fill("black")
-
-        screen.blit(text, rect)
 
         back_bt.changeColor(mouse_pos)
         back_bt.update(screen)
@@ -179,9 +41,7 @@ def game(size=(1280, 720), fullscreen=True, FPS=60, showFPS=True, speed = 150,  
             if event.type == pygame.MOUSEBUTTONDOWN:
                 if back_bt.checkForInput(mouse_pos):
                     return "back"
-        dataArray.update(dt, speed)
-        nBoids.update()
-        nBoids.draw(screen)
+        boidSim.update(dt, speed)
             
         if showFPS: 
             screen.blit(get_font(30).render(str(int(clock.get_fps())), True, [0,200,0]), (8, 8))
