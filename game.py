@@ -1,9 +1,46 @@
 import pygame
 from random import randint
 import numpy as np
+from numpy.linalg import norm
+import numba
 from lib.button import Button
-from lib.utils import get_font          
+from lib.utils import get_font    
 
+@numba.njit(cache=True, nopython=True, parallel=False, nogil=True)
+def get_next_ang(array, pos, bSize, turnRate, ang):
+    x, y = pos
+    array_dists = (x - array[:,0])**2 + (y - array[:,1])**2
+    closeBoidIs = np.argsort(array_dists)[1:8]
+    neiboids = array[closeBoidIs]
+    neiboids[:,3] = np.sqrt(array_dists[closeBoidIs])
+    neiboids = neiboids[neiboids[:,3] < bSize*12]
+    if neiboids.size > 1:  # if has neighborS, do math and sim rules
+        yat = np.sum(np.sin(np.deg2rad(neiboids[:,2])))
+        xat = np.sum(np.cos(np.deg2rad(neiboids[:,2])))
+        # averages the positions and angles of neighbors
+        tAvejAng = np.rad2deg(np.arctan2(yat, xat))
+        targetV = np.array((np.mean(neiboids[:,0]), np.mean(neiboids[:,1])), dtype=np.float64)
+        # if too close, move away from closest neighbor
+        if neiboids[0,3] < bSize : 
+            targetV = neiboids[0,0:2]
+        # get angle differences for steering
+        df = targetV - pos
+        tAngle = np.arctan2(df[1], df[0])
+        tDistance = np.hypot(df[0], df[1])
+        # if boid is close enough to neighbors, match their average angle
+        if tDistance < bSize*6 : 
+            tAngle = tAvejAng
+        # computes the difference to reach target angle, for smooth steering
+        angleDiff = (tAngle - ang) + 180
+        if abs(tAngle - ang) > 1.2: 
+            turnDir = (angleDiff / 360 - (angleDiff // 360)) * 360 - 180
+        # if boid gets too close to target, steer away
+        if tDistance < bSize and norm(targetV - neiboids[0,0:2]) < bSize: 
+            turnDir = -turnDir
+    if turnDir != 0:  # steers based on turnDir, handles left or right
+        ang += turnRate * abs(turnDir) / turnDir
+        ang %= 360  # ensures that the angle stays within 0-360
+    return ang, neiboids.size
 
 class Boid(pygame.sprite.Sprite):
     """
@@ -25,6 +62,86 @@ class Boid(pygame.sprite.Sprite):
             pygame.draw.polygon(self.image, self.color, ((7,0), (13,14), (7,11), (1,14), (7,0)))
         self.bSize = 22 if isFish else 17
         self.orig_image = pygame.transform.rotate(self.image.copy(), -90)
+        self.dir = np.array((1, 0), dtype=np.float64)  # sets up forward direction
+        maxW, maxH = self.drawSurf.get_size()
+        self.rect = self.image.get_rect(center=(randint(50, maxW - 50), randint(50, maxH - 50)))
+        self.ang = randint(0, 360)  # random start angle, & position ^
+        self.pos = np.array((self.rect.center), dtype=np.float64)
+    
+    def update(self, dt, speed, ejWrap=False):
+        maxW, maxH = self.drawSurf.get_size()
+        x, y = self.pos
+        turnDir = xvt = yvt = yat = xat = 0
+        turnRate = 120 * dt  # about 120 seems ok
+        margin = 42
+        self.ang, size = get_next_ang(self.data.array, self.pos, self.bSize, turnRate, self.ang)
+        # array_dists = (x - self.data.array[:,0])**2 + (y - self.data.array[:,1])**2
+        # closeBoidIs = np.argsort(array_dists)[1:8]
+        # neiboids = self.data.array[closeBoidIs]
+        # neiboids[:,3] = np.sqrt(array_dists[closeBoidIs])
+        # neiboids = neiboids[neiboids[:,3] < self.bSize*12]
+        # if neiboids.size > 1:  # if has neighborS, do math and sim rules
+        #     yat = np.sum(np.sin(np.deg2rad(neiboids[:,2])))
+        #     xat = np.sum(np.cos(np.deg2rad(neiboids[:,2])))
+        #     # averages the positions and angles of neighbors
+        #     tAvejAng = np.rad2deg(np.arctan2(yat, xat))
+        #     targetV = (np.mean(neiboids[:,0]), np.mean(neiboids[:,1]))
+        #     # if too close, move away from closest neighbor
+        #     if neiboids[0,3] < self.bSize : 
+        #         targetV = neiboids[0,0:2]
+        #     # get angle differences for steering
+        #     dx, dy = targetV - self.pos
+        #     tAngle = np.arctan2(dy, dx)
+        #     tDistance = np.hypot(dx, dy)
+        #     # if boid is close enough to neighbors, match their average angle
+        #     if tDistance < self.bSize*6 : 
+        #         tAngle = tAvejAng
+        #     # computes the difference to reach target angle, for smooth steering
+        #     angleDiff = (tAngle - self.ang) + 180
+        #     if abs(tAngle - self.ang) > 1.2: 
+        #         turnDir = (angleDiff / 360 - (angleDiff // 360)) * 360 - 180
+        #     # if boid gets too close to target, steer away
+        #     if tDistance < self.bSize and norm(targetV - neiboids[0,0:2]) < self.bSize: 
+        #         turnDir = -turnDir
+        # if turnDir != 0:  # steers based on turnDir, handles left or right
+        #     self.ang += turnRate * abs(turnDir) / turnDir
+        #     self.ang %= 360  # ensures that the angle stays within 0-360
+        # Adjusts angle of boid image to match heading
+        self.image = pygame.transform.rotate(self.orig_image, -self.ang)
+        self.rect = self.image.get_rect(center=self.rect.center)  # recentering fix
+        self.dir = pygame.Vector2(1, 0).rotate(self.ang).normalize()
+        self.pos += self.dir * dt * (speed + (7 - size) * 2)  # movement speed
+        # Optional screen wrap
+        if ejWrap and not self.drawSurf.get_rect().contains(self.rect):
+            if self.rect.bottom < 0 : 
+                self.pos[1] = maxH
+            elif self.rect.top > maxH : 
+                self.pos[1] = 0
+            if self.rect.right < 0 : 
+                self.pos[0]= maxW
+            elif self.rect.left > maxW : 
+                self.pos[0]= 0
+        # Actually update position of boid
+        self.rect.center = self.pos
+        # Finally, output pos/ang to array
+        self.data.array[self.bnum,:3] = [self.pos[0], self.pos[1], self.ang]
+
+class BoidBase(pygame.sprite.Sprite):
+    def __init__(self, boidNum, data, drawSurf, isFish=True, cHSV=None):
+        super().__init__()
+        self.data = data
+        self.bnum = boidNum
+        self.drawSurf = drawSurf
+        self.image = pygame.Surface((15, 15)).convert()
+        self.image.set_colorkey(0)
+        self.color = pygame.Color(0)  # preps color so we can use hsva
+        self.color.hsva = (randint(0,360), 90, 90) if cHSV is None else cHSV # randint(5,55) #4goldfish
+        if isFish:  # (randint(120,300) + 180) % 360  #4noblues
+            pygame.draw.polygon(self.image, self.color, ((7,0),(12,5),(3,14),(11,14),(2,5),(7,0)), width=3)
+            self.image = pygame.transform.scale(self.image, (16, 24))
+        else : pygame.draw.polygon(self.image, self.color, ((7,0), (13,14), (7,11), (1,14), (7,0)))
+        self.bSize = 22 if isFish else 17
+        self.orig_image = pygame.transform.rotate(self.image.copy(), -90)
         self.dir = pygame.Vector2(1, 0)  # sets up forward direction
         maxW, maxH = self.drawSurf.get_size()
         self.rect = self.image.get_rect(center=(randint(50, maxW - 50), randint(50, maxH - 50)))
@@ -36,9 +153,11 @@ class Boid(pygame.sprite.Sprite):
         turnDir = xvt = yvt = yat = xat = 0
         turnRate = 120 * dt  # about 120 seems ok
         margin = 42
-        array_dists = (self.pos.x - self.data.array[:,0])**2 + (self.pos.y - self.data.array[:,1])**2
-        closeBoidIs = np.argsort(array_dists)[1:8]
-        neiboids = self.data.array[closeBoidIs]
+        # Make list of nearby boids, sorted by distance
+        otherBoids = np.delete(self.data.array, self.bnum, 0)
+        array_dists = (self.pos.x - otherBoids[:,0])**2 + (self.pos.y - otherBoids[:,1])**2
+        closeBoidIs = np.argsort(array_dists)[:7]
+        neiboids = otherBoids[closeBoidIs]
         neiboids[:,3] = np.sqrt(array_dists[closeBoidIs])
         neiboids = neiboids[neiboids[:,3] < self.bSize*12]
         if neiboids.size > 1:  # if has neighborS, do math and sim rules
@@ -48,31 +167,25 @@ class Boid(pygame.sprite.Sprite):
             tAvejAng = np.rad2deg(np.arctan2(yat, xat))
             targetV = (np.mean(neiboids[:,0]), np.mean(neiboids[:,1]))
             # if too close, move away from closest neighbor
-            if neiboids[0,3] < self.bSize : 
-                targetV = (neiboids[0,0], neiboids[0,1])
+            if neiboids[0,3] < self.bSize : targetV = (neiboids[0,0], neiboids[0,1])
             # get angle differences for steering
             tDiff = pygame.Vector2(targetV) - self.pos
             tDistance, tAngle = pygame.math.Vector2.as_polar(tDiff)
             # if boid is close enough to neighbors, match their average angle
-            if tDistance < self.bSize*6 : 
-                tAngle = tAvejAng
+            if tDistance < self.bSize*6 : tAngle = tAvejAng
             # computes the difference to reach target angle, for smooth steering
             angleDiff = (tAngle - self.ang) + 180
-            if abs(tAngle - self.ang) > 1.2: 
-                turnDir = (angleDiff / 360 - (angleDiff // 360)) * 360 - 180
+            if abs(tAngle - self.ang) > 1.2: turnDir = (angleDiff / 360 - (angleDiff // 360)) * 360 - 180
             # if boid gets too close to target, steer away
             if tDistance < self.bSize and targetV == (neiboids[0,0], neiboids[0,1]) : 
+                print(targetV, (neiboids[0,0], neiboids[0,1]))
                 turnDir = -turnDir
         # Avoid edges of screen by turning toward the edge normal-angle
         if not ejWrap and min(self.pos.x, self.pos.y, maxW - self.pos.x, maxH - self.pos.y) < margin:
-            if self.pos.x < margin : 
-                tAngle = 0
-            elif self.pos.x > maxW - margin : 
-                tAngle = 180
-            if self.pos.y < margin : 
-                tAngle = 90
-            elif self.pos.y > maxH - margin : 
-                tAngle = 270
+            if self.pos.x < margin : tAngle = 0
+            elif self.pos.x > maxW - margin : tAngle = 180
+            if self.pos.y < margin : tAngle = 90
+            elif self.pos.y > maxH - margin : tAngle = 270
             angleDiff = (tAngle - self.ang) + 180  # if in margin, increase turnRate to ensure stays on screen
             turnDir = (angleDiff / 360 - (angleDiff // 360)) * 360 - 180
             edgeDist = min(self.pos.x, self.pos.y, maxW - self.pos.x, maxH - self.pos.y)
@@ -87,14 +200,10 @@ class Boid(pygame.sprite.Sprite):
         self.pos += self.dir * dt * (speed + (7 - neiboids.size) * 2)  # movement speed
         # Optional screen wrap
         if ejWrap and not self.drawSurf.get_rect().contains(self.rect):
-            if self.rect.bottom < 0 : 
-                self.pos.y = maxH
-            elif self.rect.top > maxH : 
-                self.pos.y = 0
-            if self.rect.right < 0 : 
-                self.pos.x = maxW
-            elif self.rect.left > maxW : 
-                self.pos.x = 0
+            if self.rect.bottom < 0 : self.pos.y = maxH
+            elif self.rect.top > maxH : self.pos.y = 0
+            if self.rect.right < 0 : self.pos.x = maxW
+            elif self.rect.left > maxW : self.pos.x = 0
         # Actually update position of boid
         self.rect.center = self.pos
         # Finally, output pos/ang to array
@@ -104,7 +213,9 @@ class BoidArray():  # Holds array to store positions and angles
     def __init__(self, size):
         self.array = np.zeros((size, 4), dtype=float)
 
-def game(size=(1280, 720), fullscreen=True, FPS=60, showFPS=True, speed = 150,  fish = 150):
+BOID = BoidBase
+BOID = Boid
+def game(size=(1280, 720), fullscreen=True, FPS=60, showFPS=True, speed = 150,  fish = 500):
     pygame.display.set_caption("Game")
     if fullscreen:
         screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
@@ -122,7 +233,7 @@ def game(size=(1280, 720), fullscreen=True, FPS=60, showFPS=True, speed = 150,  
     nBoids = pygame.sprite.Group()
     dataArray = BoidArray(fish)
     for id in range(fish):
-        nBoids.add(Boid(id, dataArray, screen))  # spawns desired # of boidz
+        nBoids.add(BOID(id, dataArray, screen))  # spawns desired # of boidz
 
     while True:
         mouse_pos = pygame.mouse.get_pos()
