@@ -4,7 +4,7 @@ from lib.button import Button
 from lib.utils import get_font    
 from lib.boid import BoidSim
 
-def game(size=(1280, 720), fullscreen=True, FPS=60, showFPS=True, speed = 150,  fish = 100):
+def game(size=(1280, 720), fullscreen=True, FPS=60, showFPS=True, speed = 170,  fish = 100):
     pygame.display.set_caption("Game")
     if fullscreen:
         screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)

@@ -10,7 +10,7 @@ def quit():
     sys.exit(0)
 
 @numba.jit(cache=True, nopython=True, nogil=True)
-def update_boid(array, max_radius, min_radius, avg_radius, wrap, maxW, maxH, margin, dt, speed):
+def update_boid(array, max_radius, min_radius, avg_radius, wrap, maxW, maxH, margin, dt, speed, point=None, attract=False):
     for data in array:
         turnDir = 0
         turnRate = 120 * dt 
@@ -23,20 +23,23 @@ def update_boid(array, max_radius, min_radius, avg_radius, wrap, maxW, maxH, mar
         neiboids = array[closeBoidIs]
         neiboids[:,3] = np.sqrt(array_dists[closeBoidIs])
         neiboids = neiboids[neiboids[:,3] < max_radius]
+        if point is not None and attract:
+            neiboids = point
+            neiboids[0,2] = ang
+            neiboids[0,3] = (x - neiboids[0,0])**2 + (y - neiboids[0,1])**2
+        # print(x, y, ang, neiboids)
 
         if neiboids.size > 1:  # if has neighborS, do math and sim rules
-            yat = np.sum(np.sin(np.deg2rad(neiboids[:,2])))
-            xat = np.sum(np.cos(np.deg2rad(neiboids[:,2])))
             # averages the positions and angles of neighbors
-            tAvejAng = np.rad2deg(np.arctan2(yat, xat))
+            tAvejAng = np.mean(neiboids[:,2])
             targetV = np.array((np.mean(neiboids[:,0]), np.mean(neiboids[:,1])), dtype=np.float64)
             # if too close, move away from closest neighbor
             if neiboids[0,3] < min_radius : 
                 targetV = neiboids[0,:2]
             # get angle differences for steering
-            dx, dy = targetV - data[:2]
-            tAngle = np.arctan2(dy, dx)
-            tDistance = np.hypot(dx, dy)
+            tDistance = norm(targetV - data[:2])
+            tAngle = np.rad2deg(np.cos(targetV[0]/norm(targetV)))
+
             # if boid is close enough to neighbors, match their average angle
             if tDistance < avg_radius : 
                 tAngle = tAvejAng
@@ -45,7 +48,7 @@ def update_boid(array, max_radius, min_radius, avg_radius, wrap, maxW, maxH, mar
             if abs(tAngle - ang) > 1.2: 
                 turnDir = (angleDiff / 360 - (angleDiff // 360)) * 360 - 180
             # if boid gets too close to target, steer away
-            if tDistance < min_radius and norm(targetV - neiboids[0,0:2]) < min_radius: 
+            if tDistance < min_radius: 
                 turnDir = -turnDir
 
         # Avoid edges of screen by turning toward the edge normal-angle

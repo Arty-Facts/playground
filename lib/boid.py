@@ -23,6 +23,7 @@ class Boid(pygame.sprite.Sprite):
         else: 
             pygame.draw.polygon(self.image, self.color, ((7,0), (13,14), (7,11), (1,14), (7,0)))
         self.bSize = 22 if isFish else 17
+
         self.orig_image = pygame.transform.rotate(self.image.copy(), -90)
         maxW, maxH = self.screen.get_size()
         self.rect = self.image.get_rect(center=(randint(50, maxW - 50), randint(50, maxH - 50)))
@@ -48,7 +49,10 @@ class BoidArray():  # Holds array to store positions and angles
         self.margin = margin
 
     def update(self, dt, speed):
-        update_boid(self.array, self.bSize*12, self.bSize, self.bSize*6, self.wrap, self.maxW, self.maxH, self.margin, dt, speed)
+        x, y = pygame.mouse.get_pos()
+        mouse_pos = np.array( [(x, y, 0.0, 0.0)], dtype=np.float64)
+        mouse_pressed = pygame.mouse.get_pressed()[0]
+        update_boid(self.array, self.bSize*10, self.bSize, self.bSize*5, self.wrap, self.maxW, self.maxH, self.margin, dt, speed, mouse_pos, mouse_pressed)
     
     def set_pos(self, id, pos):
         self.array[id,:2] = np.copy(pos)
@@ -65,7 +69,7 @@ class BoidArray():  # Holds array to store positions and angles
 class BoidSim():
     def __init__(self, size, screen, isFish=False, wrap=False):
         maxW, maxH = screen.get_size()
-        self.dataArray = BoidArray(size, 22, True, maxW, maxH, 42)
+        self.dataArray = BoidArray(size, 22, wrap, maxW, maxH, 42)
         self.nBoids = pygame.sprite.Group()
         self.screen = screen
         for id in range(size):
