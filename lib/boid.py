@@ -1,6 +1,6 @@
 import pygame
 import numpy as np
-from random import randint
+from random import randint, random
 from lib.utils import update_boid
 
 
@@ -22,18 +22,18 @@ class Boid(pygame.sprite.Sprite):
             self.image = pygame.transform.scale(self.image, (16, 24))
         else: 
             pygame.draw.polygon(self.image, self.color, ((7,0), (13,14), (7,11), (1,14), (7,0)))
-        self.bSize = 22 if isFish else 17
+        self.bSize = 10
 
         self.orig_image = pygame.transform.rotate(self.image.copy(), -90)
         maxW, maxH = self.screen.get_size()
-        self.rect = self.image.get_rect(center=(randint(50, maxW - 50), randint(50, maxH - 50)))
+        self.rect = self.image.get_rect(center=(randint(100, maxW - 100), randint(100, maxH - 100)))
         self.pos = np.array((self.rect.center), dtype=np.float64)
 
         self.data.set_pos(self.id, self.pos)  # sets up forward direction
-        self.data.set_ang(self.id, randint(0, 360))  # random start angle, & position ^
+        self.data.set_ang(self.id, random()*2*np.pi)  # random start angle, & position ^
     
     def update(self):
-        self.image = pygame.transform.rotate(self.orig_image, -self.data.get_ang(self.id))
+        self.image = pygame.transform.rotate(self.orig_image, -np.rad2deg(self.data.get_ang(self.id)))
         self.rect = self.image.get_rect(center=self.rect.center)  # recentering fix
         # Actually update position of boid
         self.rect.center = self.data.get_pos(self.id)
@@ -52,7 +52,7 @@ class BoidArray():  # Holds array to store positions and angles
         x, y = pygame.mouse.get_pos()
         mouse_pos = np.array( [(x, y, 0.0, 0.0)], dtype=np.float64)
         mouse_pressed = pygame.mouse.get_pressed()[0]
-        update_boid(self.array, self.bSize*10, self.bSize, self.bSize*5, self.wrap, self.maxW, self.maxH, self.margin, dt, speed, mouse_pos, mouse_pressed)
+        update_boid(self.array, self.bSize*10, self.bSize, self.bSize*6, self.wrap, self.maxW, self.maxH, self.margin, dt, speed, mouse_pos, mouse_pressed)
     
     def set_pos(self, id, pos):
         self.array[id,:2] = np.copy(pos)
@@ -67,13 +67,13 @@ class BoidArray():  # Holds array to store positions and angles
         return self.array[id,2]
         
 class BoidSim():
-    def __init__(self, size, screen, isFish=False, wrap=False):
+    def __init__(self, size, screen, isFish=True, wrap=True):
         maxW, maxH = screen.get_size()
         self.dataArray = BoidArray(size, 22, wrap, maxW, maxH, 42)
         self.nBoids = pygame.sprite.Group()
         self.screen = screen
         for id in range(size):
-            self.nBoids.add(Boid(id, self.dataArray, screen))  # spawns desired # of boidz
+            self.nBoids.add(Boid(id, self.dataArray, screen, isFish))  # spawns desired # of boidz
 
     def update(self, dt, speed):
         self.dataArray.update(dt, speed)
