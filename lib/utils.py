@@ -105,6 +105,6 @@ def one_update(array, data, max_radius, min_radius, avg_radius, wrap, max_w, max
 
 @numba.jit(cache=True, nopython=True, nogil=True)
 def update_boid(array, max_radius, min_radius, avg_radius, wrap, max_w, max_h, margin, dt, speed, point, attract=False):
-    turn_rate = np.pi * 0.4 * dt 
+    turn_rate = np.pi * 0.6 * dt 
     for data in array:
         one_update(array, data, max_radius, min_radius, avg_radius, wrap, max_w, max_h, margin, dt, speed, turn_rate, point, attract)
