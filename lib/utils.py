@@ -54,6 +54,10 @@ def screen_wrap(pos, max_h, max_w):
         pos[0]= 0
 
 @numba.njit(cache=True, nogil=True)
+def update_speed(turn_rate, dist, margin, dt):
+    return turn_rate + (1 - dist / margin) * (np.pi * dt - turn_rate) #minRate+(1-dist/margin)*(maxRate-minRate)
+
+@numba.njit(cache=True, nogil=True)
 def one_update(array, data, max_radius, min_radius, avg_radius, wrap, max_w, max_h, margin, dt, speed, turn_rate, point, attract):
     target_ang = None
     x, y = data[:2]
@@ -70,7 +74,8 @@ def one_update(array, data, max_radius, min_radius, avg_radius, wrap, max_w, max
 
         # if too close, move away from closest neighbor
         if neiboids[0,3] < min_radius : 
-            target_ang , _=  target_stats(data[:2], neiboids[0,:2], ang)
+            target_ang , target_dist =  target_stats(data[:2], neiboids[0,:2], ang)
+            turn_rate = update_speed(turn_rate, target_dist,  min_radius,  dt)
         else:
             # get angle differences for steering and the distence
             target_ang, target_dist = target_stats(avg_pos, data[:2], ang)
@@ -80,21 +85,20 @@ def one_update(array, data, max_radius, min_radius, avg_radius, wrap, max_w, max
                 target_ang = avg_ang - ang
     # Avoid edges of screen by turning toward the edge normal-angle
     if wrap and min(x, y, max_w - x, max_h - y) < margin:
-        # target_ang = np.pi - 2 * (ang + random() * 1e-2)
         target_ang, _ = target_stats(np.array((max_w/2, max_h/2), dtype=np.float64), data[:2], ang)
-        edgeDist = min(x, y, max_w - x, max_h - y, 0)
-        turn_rate = turn_rate + (1 - edgeDist / margin) * (np.pi * dt - turn_rate) #minRate+(1-dist/margin)*(maxRate-minRate)
+        edge_dist = min(x, y, max_w - x, max_h - y, 0)
+        turn_rate = update_speed(turn_rate, edge_dist, margin,  dt)
 
     if target_ang is not None: 
         # turn only if the angle is large enough
-        if abs(target_ang) > np.pi/3:
+        if abs(target_ang) > 0:
             ang += turn_rate * abs(target_ang) / target_ang
             ang %= 2*np.pi  # ensures that the angle stays within 0-2*pi
     
     # Adjusts angle of boid image to match heading
     dir =  np.array((np.cos(ang), np.sin(ang)), dtype=np.float64)
     # output pos to array
-    data[:2] += dir * dt * (speed + (random() * speed / 10) + (7 - neiboids.size) * 2)  # movement speed
+    data[:2] += dir * dt * (speed + (random() * speed / 5) + (7 - neiboids.size) * 2)  # movement speed
 
     # Optional screen wrap
     if not wrap:
