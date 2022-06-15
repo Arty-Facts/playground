@@ -58,15 +58,11 @@ def update_speed(turn_rate, dist, margin, dt):
     return turn_rate + (1 - dist / margin) * (np.pi * dt - turn_rate) #minRate+(1-dist/margin)*(maxRate-minRate)
 
 @numba.njit(cache=True, nogil=True)
-def one_update(array, data, max_radius, min_radius, avg_radius, wrap, max_w, max_h, margin, dt, speed, turn_rate, point, attract):
+def one_update(array, data, max_radius, min_radius, avg_radius, wrap, max_w, max_h, margin, dt, speed, turn_rate):
     target_ang = None
     x, y = data[:2]
     ang = data[2]
     neiboids = find_neiboids(array, x, y, max_radius)
-    if attract:
-        neiboids = point
-        neiboids[0,2] = ang
-        neiboids[0,3] = (x - neiboids[0,0])**2 + (y - neiboids[0,1])**2
 
     if neiboids.size > 1:  # if has neighborS, do math and sim rules
         # averages the positions and angles of neighbors
@@ -77,8 +73,8 @@ def one_update(array, data, max_radius, min_radius, avg_radius, wrap, max_w, max
             target_ang , target_dist =  target_stats(data[:2], neiboids[0,:2], ang)
             turn_rate = update_speed(turn_rate, target_dist,  min_radius,  dt)
         else:
-            # get angle differences for steering and the distence
             target_ang, target_dist = target_stats(avg_pos, data[:2], ang)
+            # get angle differences for steering and the distence
 
             # if boid is close enough to neighbors, match their average angle
             if target_dist < avg_radius : 
@@ -92,14 +88,10 @@ def one_update(array, data, max_radius, min_radius, avg_radius, wrap, max_w, max
     if target_ang is not None: 
         # turn only if the angle is large enough
         if abs(target_ang) > 0:
-            ang += turn_rate * abs(target_ang) / target_ang
-            ang %= 2*np.pi  # ensures that the angle stays within 0-2*pi
+            ang = next_ang(ang, turn_rate, target_ang)
     
-    # Adjusts angle of boid image to match heading
-    dir =  np.array((np.cos(ang), np.sin(ang)), dtype=np.float64)
     # output pos to array
-    data[:2] += dir * dt * (speed + (random() * speed / 5) + (7 - neiboids.size) * 2)  # movement speed
-
+    data[:2] += next_step(ang, speed, neiboids.size + 1, dt)
     # Optional screen wrap
     if not wrap:
         screen_wrap(data, max_h, max_w)
@@ -108,7 +100,55 @@ def one_update(array, data, max_radius, min_radius, avg_radius, wrap, max_w, max
     data[2] = ang
 
 @numba.jit(cache=True, nopython=True, nogil=True)
-def update_boid(array, max_radius, min_radius, avg_radius, wrap, max_w, max_h, margin, dt, speed, point, attract=False):
-    turn_rate = np.pi * 0.6 * dt 
+def next_step(ang, speed, friends, dt):
+    # Adjusts angle of boid image to match heading
+    dir =  np.array((np.cos(ang), np.sin(ang)), dtype=np.float64)
+    # output pos to array
+    return dir * dt * (speed + (random() * speed / 5) +  (10/friends))  # movement speed
+
+@numba.jit(cache=True, nopython=True, nogil=True)
+def next_ang(ang, turn_rate, target_ang):
+    ang += turn_rate * abs(target_ang) / target_ang
+    ang %= 2*np.pi  # ensures that the angle stays within 0-2*pi
+    return ang
+
+@numba.jit(cache=True, nopython=True, nogil=True)
+def get_turn_rate(dt):
+    return np.pi * 0.6 * dt 
+
+@numba.jit(cache=True, nopython=True, nogil=True)
+def update_boid(array, max_radius, min_radius, avg_radius, wrap, max_w, max_h, margin, dt, speed):
+    turn_rate = get_turn_rate(dt)
     for data in array:
-        one_update(array, data, max_radius, min_radius, avg_radius, wrap, max_w, max_h, margin, dt, speed, turn_rate, point, attract)
+        one_update(array, data, max_radius, min_radius, avg_radius, wrap, max_w, max_h, margin, dt, speed, turn_rate)
+
+@numba.jit(cache=True, nopython=True, nogil=True)
+def update_interaction(array, dt, point, attract, max_dist=-1):
+    turn_rate = get_turn_rate(dt) 
+    for data in array:
+        target_ang = None
+        ang = data[2]
+
+        if attract:
+            target_ang, target_dist =  target_stats(point, data[:2], ang)
+        else:
+            target_ang, target_dist =  target_stats(data[:2], point, ang)
+        
+        # skip if no update is needed
+        if abs(target_ang) == 0 or max_dist >= 0 and target_dist > max_dist:
+            continue
+        
+        # uppdate the angle for next iteration 
+        if max_dist > 0 and target_dist > 1:
+            turn_rate *= 1 + 1/target_dist 
+        data[2] = next_ang(ang, turn_rate, target_ang)
+    
+@numba.jit(cache=True, nopython=True, nogil=True)
+def update_all(array, max_rad, min_rad, avg_rad, wrap, maxW, maxH, margin, dt, speed, left, rigth, pos):
+    update_boid(array, max_rad, min_rad, avg_rad, wrap, maxW, maxH, margin, dt, speed)
+    if left:
+        update_interaction(array, dt, pos, True, -1)
+    elif rigth:
+        update_interaction(array, dt, pos, False, max_rad)
+
+

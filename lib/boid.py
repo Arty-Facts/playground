@@ -1,8 +1,7 @@
 import pygame
 import numpy as np
 from random import randint, random
-from lib.utils import update_boid
-
+from lib.utils import update_all
 
 class Boid(pygame.sprite.Sprite):
     """
@@ -38,7 +37,6 @@ class Boid(pygame.sprite.Sprite):
         # Actually update position of boid
         self.rect.center = self.data.get_pos(self.id)
 
-
 class BoidArray():  # Holds array to store positions and angles
     def __init__(self, size, bSize, wrap, maxW, maxH, margin):
         self.array = np.zeros((size, 4), dtype=np.float64)
@@ -50,10 +48,11 @@ class BoidArray():  # Holds array to store positions and angles
 
     def update(self, dt, speed):
         x, y = pygame.mouse.get_pos()
-        mouse_pos = np.array( [(x, y, 0.0, 0.0)], dtype=np.float64)
-        mouse_pressed = pygame.mouse.get_pressed()[0]
-        update_boid(self.array, self.bSize*10, self.bSize, self.bSize*6, self.wrap, self.maxW, self.maxH, self.margin, dt, speed, mouse_pos, mouse_pressed)
-    
+        pos = np.array( (x, y), dtype=np.float64)
+        left = pygame.mouse.get_pressed()[0]
+        rigth = pygame.mouse.get_pressed()[2]
+        update_all(self.array, self.bSize*10, self.bSize, self.bSize*6, self.wrap, self.maxW, self.maxH, self.margin, dt, speed, left, rigth, pos)
+        
     def set_pos(self, id, pos):
         self.array[id,:2] = np.copy(pos)
 
