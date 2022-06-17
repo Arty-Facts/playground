@@ -140,7 +140,7 @@ def update_interaction(array, dt, point, attract, max_dist=-1):
         
         # uppdate the angle for next iteration 
         if max_dist > 0 and target_dist > 1:
-            turn_rate *= 1 + 1/target_dist 
+            turn_rate *= 1 + 1/target_dist *10
         data[2] = next_ang(ang, turn_rate, target_ang)
     
 @numba.jit(cache=True, nopython=True, nogil=True)
