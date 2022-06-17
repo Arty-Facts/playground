@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+// The service definition.
+service Boid {
+  // Sends a greeting
+  rpc BoidVec (BoidRequest) returns (BoidVec) {}
+  rpc BoidCord (BoidRequest) returns (Cord) {}
+}
+
+message BoidRequest {
+  int32 id = 1;
+}
+
+message Cord {
+    float32 x = 1;
+    float32 y = 2;
+    float32 ang = 3;
+  }
+
+message BoidVec {
+    repeated Cord cords = 1;
+}

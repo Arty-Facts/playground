@@ -1,0 +1,8 @@
+*.pyc
+*.nbc
+*.nbi
+
+
+# Added by cargo
+
+/target
