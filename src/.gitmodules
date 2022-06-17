@@ -1,3 +1,0 @@
-[submodule "transport/grpc"]
-	path = transport/grpc
-	url = git@github.com:grpc/grpc.git

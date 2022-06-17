@@ -1,1 +1,8 @@
-target/debug/playground.d
+*.pyc
+*.nbc
+*.nbi
+
+
+# Added by cargo
+
+/target
